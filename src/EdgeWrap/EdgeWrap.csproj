@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>EdgeWrap</RootNamespace>
+    <AssemblyName>EdgeWrap</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <Version>0.1.0</Version>
+    <Product>EdgeWrap</Product>
+    <Authors>0ch4</Authors>
+    <Company>0ch4</Company>
+    <Description>Wrap the mouse cursor across multi-monitor edges (donut-style).</Description>
+  </PropertyGroup>
+
+</Project>
