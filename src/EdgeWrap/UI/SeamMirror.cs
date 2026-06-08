@@ -160,12 +160,13 @@ public sealed class SeamMirrorService : IDisposable
     private List<Seam> _seams = new();
     private bool _enabled;
 
-    // While a window straddles the seam it's the focused window, so pin it top-most;
-    // restore it once it no longer straddles.
+    // A straddling window is mirrored and pinned top-most, and stays that way even when
+    // focus moves elsewhere — until it returns fully on-screen, or is closed/minimised.
     private static readonly IntPtr HWND_TOPMOST = new(-1);
     private static readonly IntPtr HWND_NOTOPMOST = new(-2);
     private const uint SWP_NOMOVE_NOSIZE_NOACTIVATE = 0x0001 | 0x0002 | 0x0010;
     private IntPtr _pinned = IntPtr.Zero;
+    private IntPtr _tracked = IntPtr.Zero;
 
     public SeamMirrorService()
     {
@@ -221,60 +222,71 @@ public sealed class SeamMirrorService : IDisposable
 
     private void Tick()
     {
-        var hwnd = Native.GetForegroundWindow();
-        if (hwnd == IntPtr.Zero || !Native.IsWindowVisible(hwnd) || Native.IsIconic(hwnd))
+        // Prefer the foreground window if it straddles. Otherwise keep showing the window
+        // we were already mirroring, even though focus moved away — it stays pinned
+        // top-most until it returns on-screen or is closed/minimised.
+        IntPtr fg = Native.GetForegroundWindow();
+        if (fg != IntPtr.Zero && fg != _tracked)
         {
-            StopMirror();
+            Native.GetWindowThreadProcessId(fg, out uint pid);
+            if (pid != _ownPid && IsMirrorable(fg) && TryStraddle(fg, out var rcF, out var destF))
+            {
+                _overlay.ShowMirror(fg, rcF, destF);
+                PinTopmost(fg);
+                _tracked = fg;
+                return;
+            }
+        }
+
+        if (_tracked != IntPtr.Zero && IsMirrorable(_tracked) && TryStraddle(_tracked, out var rc, out var dest))
+        {
+            _overlay.ShowMirror(_tracked, rc, dest);
+            PinTopmost(_tracked);
             return;
         }
 
-        // Never mirror our own windows (overlay / settings / tray).
-        Native.GetWindowThreadProcessId(hwnd, out uint pid);
-        if (pid == _ownPid)
-        {
-            StopMirror();
-            return;
-        }
+        StopMirror();
+    }
 
+    private static bool IsMirrorable(IntPtr hwnd) =>
+        Native.IsWindow(hwnd) && Native.IsWindowVisible(hwnd) && !Native.IsIconic(hwnd);
+
+    private bool TryStraddle(IntPtr hwnd, out Native.RECT rcSource, out Rectangle dest)
+    {
+        rcSource = default;
+        dest = default;
         if (!Native.GetWindowRect(hwnd, out var wr))
-        {
-            StopMirror();
-            return;
-        }
+            return false;
 
         foreach (var seam in _seams)
         {
-            // (a) window spills off the RIGHT edge of the rightmost monitor -> show on the LEFT monitor's left edge
+            // (a) spills off the RIGHT edge of the rightmost monitor -> show on the LEFT monitor's left edge
             if (wr.Right > seam.RightMon.Right && wr.Left < seam.RightMon.Right)
             {
                 int ow = wr.Right - seam.RightMon.Right;
                 int srcLeft = seam.RightMon.Right - wr.Left;
-                var rcSource = new Native.RECT { Left = srcLeft, Top = 0, Right = wr.Width, Bottom = wr.Height };
-                var dest = new Rectangle(seam.LeftMon.Left, wr.Top, ow, wr.Height);
-                _overlay.ShowMirror(hwnd, rcSource, dest);
-                PinTopmost(hwnd);
-                return;
+                rcSource = new Native.RECT { Left = srcLeft, Top = 0, Right = wr.Width, Bottom = wr.Height };
+                dest = new Rectangle(seam.LeftMon.Left, wr.Top, ow, wr.Height);
+                return true;
             }
 
-            // (b) window spills off the LEFT edge of the leftmost monitor -> show on the RIGHT monitor's right edge
+            // (b) spills off the LEFT edge of the leftmost monitor -> show on the RIGHT monitor's right edge
             if (wr.Left < seam.LeftMon.Left && wr.Right > seam.LeftMon.Left)
             {
                 int ow = seam.LeftMon.Left - wr.Left;
-                var rcSource = new Native.RECT { Left = 0, Top = 0, Right = ow, Bottom = wr.Height };
-                var dest = new Rectangle(seam.RightMon.Right - ow, wr.Top, ow, wr.Height);
-                _overlay.ShowMirror(hwnd, rcSource, dest);
-                PinTopmost(hwnd);
-                return;
+                rcSource = new Native.RECT { Left = 0, Top = 0, Right = ow, Bottom = wr.Height };
+                dest = new Rectangle(seam.RightMon.Right - ow, wr.Top, ow, wr.Height);
+                return true;
             }
         }
-
-        StopMirror();
+        return false;
     }
 
     private void StopMirror()
     {
         _overlay.HideMirror();
         Unpin();
+        _tracked = IntPtr.Zero;
     }
 
     private void PinTopmost(IntPtr hwnd)
