@@ -1,87 +1,67 @@
 # EdgeWrap
 
-Wrap the mouse cursor across multi-monitor edges — donut / torus-style.
+**日本語** / [English](README.en.md)
 
-Move the cursor off the far edge of one monitor and it reappears on the opposite
-edge of another, as if your monitors were joined into a loop. Configure exactly
-which edges connect with a visual monitor map.
+マルチモニターの端でマウスカーソルを **ドーナツ（トーラス）状にワープ** させる常駐ユーティリティ。
 
-> Originally built to join the **left edge of the leftmost monitor** to the
-> **right edge of the rightmost monitor**, so the cursor travels in a continuous
-> ring across a triple-monitor setup.
+あるモニターの外側の端へカーソルを抜けさせると、別のモニターの反対側の端から再び現れます。モニターが輪のようにつながる感覚です。**どの端とどの端をつなぐかは、ビジュアルな配置図で指定**できます。
 
-## Features
+> もともとは **一番左のモニターの左端** と **一番右のモニターの右端** をつなぎ、トリプルモニターでカーソルが途切れず一周できるように作りました。
 
-- **Donut cursor wrap** — connect any monitor edge to any other (left↔right, top↔bottom).
-- **Visual monitor map** — click one edge, then another, to link them. Drawn to scale.
-- **Proportional mapping** — different resolutions and vertical offsets are absorbed,
-  so the cursor never lands in a gap between mismatched monitors.
-- **Tray resident** — runs quietly in the system tray; enable/pause from the menu.
-- **Start with Windows** — optional auto-start at login.
-- **Single self-contained `.exe`** — no .NET runtime required for end users.
-- **Experimental: seam mirror** — when a window is dragged past a wrap seam, its
-  off-screen part is mirrored onto the opposite monitor via a live DWM thumbnail,
-  so the window *looks* like it wraps around the donut. Visual only (see Limitations).
+![設定ウィンドウ](docs/settings.png)
 
-## Install
+## 特長
 
-1. Download `EdgeWrap.exe` from the [Releases](../../releases) page.
-2. Run it. It lives in the system tray.
-3. Open **設定… (Settings)** from the tray icon, click two edges on the map to link
-   them, and press **適用 (Apply)**.
+- **ドーナツ・カーソルワープ** — 任意のモニターの端どうしを連結（左⇄右・上⇄下）。
+- **ビジュアル配置図** — 端をクリック → もう一方の端をクリックで連結。実寸で描画。
+- **比例マッピング** — 解像度差や縦ずれを吸収するので、ズレたモニター間の「隙間」にカーソルが吸い込まれない。
+- **トレイ常駐** — タスクトレイに静かに常駐。メニューから有効/一時停止。
+- **Windows起動時に自動開始**（任意）。
+- **単体 `.exe`（self-contained）** — 利用者側に .NET ランタイム不要。
+- **実験: シーム・ミラー** — ウィンドウをワープの継ぎ目へはみ出させると、画面外の部分を反対側のモニターへ DWM サムネイルでライブ表示し、ウィンドウが継ぎ目をまたいで*見える*。視覚のみ（後述の制限を参照）。
 
-No installer, no .NET runtime needed (the release exe is self-contained).
+## インストール
 
-## Usage
+1. [Releases](../../releases) から `EdgeWrap.exe` をダウンロード。
+2. 実行すると、タスクトレイに常駐します。
+3. トレイアイコンから **設定…** を開き、配置図で端を2つクリックして連結 → **適用**。
 
-- **Tray menu**: Settings, Enable/Pause, Start with Windows, the seam-mirror toggle, Quit.
-- **Settings window**: click an edge → click another edge → they are linked (shown as a
-  dashed arrow). Select a link in the list and remove it. Toggle auto-start. Press Apply.
-- Config is stored at `%APPDATA%\EdgeWrap\config.json`.
+インストーラ不要・.NET ランタイム不要（リリースの exe は self-contained）。
 
-## Build from source
+## 使い方
 
-Requires the .NET 8 SDK.
+- **トレイメニュー**: 設定… / 有効・一時停止 / Windows起動時に開始 / シーム・ミラー切替 / 終了。
+- **設定ウィンドウ**: 端をクリック → もう一方の端をクリックで連結（点線の矢印で表示）。リストで選んで削除も可。自動起動のON/OFF。最後に **適用**。
+- 設定は `%APPDATA%\EdgeWrap\config.json` に保存されます。
 
-```sh
-# run locally
+## ソースからビルド
+
+.NET 8 SDK が必要です。
+
+```powershell
+# ローカル実行
 dotnet run --project src/EdgeWrap
 
-# self-contained single-file exe (no runtime needed to run it)
+# ランタイム不要の単体exe（self-contained, single-file）
 dotnet publish src/EdgeWrap/EdgeWrap.csproj -c Release -r win-x64 `
   --self-contained true -p:PublishSingleFile=true `
   -p:IncludeNativeLibrariesForSelfExtract=true -o publish
 ```
 
-For a much smaller, framework-dependent build (requires the .NET 8 Desktop Runtime
-on the target machine), drop `--self-contained true` and the single-file flags.
+サイズの小さい framework-dependent 版（実行側に .NET 8 デスクトップランタイムが必要）にするには、`--self-contained true` と single-file 系フラグを外してください。
 
-## How it works
+## 仕組み
 
-A background thread polls the cursor (~6 ms). When the cursor is pressed against a
-linked edge *and* that edge is on the outer boundary of the virtual desktop, the
-cursor is teleported to the partner edge. The position along the edge is mapped
-proportionally (`ratio = pos / length`), which is what absorbs resolution and
-vertical-offset differences between monitors.
+バックグラウンドスレッドがカーソルを約6msで監視し、**連結された端に張り付き、かつその端が仮想デスクトップの外周にある**ときに、相手側の端へカーソルをテレポートします。端に沿った位置は**比例マッピング**（`ratio = pos / length`）で写すため、モニター間の解像度差・縦ずれを吸収できます。
 
-The seam mirror uses `DwmRegisterThumbnail` to live-render the off-screen strip of a
-window onto a click-through, top-most overlay on the opposite monitor.
+シーム・ミラーは `DwmRegisterThumbnail` を使い、ウィンドウの画面外部分を反対モニター上のクリックスルー＆最前面オーバーレイへライブ描画します。
 
-## Limitations & roadmap
+## 制限とロードマップ
 
-- **Windows that span a wrap seam can't be drawn natively.** The donut is a cursor
-  *teleport*; the two wrapped edges are not actually adjacent in Windows' (flat) virtual
-  desktop, so the OS cannot render one window across the seam. The seam mirror fakes the
-  *visual*, but it is **display-only**.
-- **Torus input is blocked by the OS.** Making the mirrored strip interactive would
-  require placing the real cursor on the window's off-screen part — but Windows confines
-  the cursor to the union of real displays, so it can never go there. Synthetic input
-  (`PostMessage`) works only for some classic Win32 apps.
-- **v2 idea:** a real *torus desktop* needs genuine screen space where the wrapped part
-  lives. The intended path is an **indirect display driver (IDD)** that creates a virtual
-  monitor; the cursor *can* enter it, so input works universally, and it gets mirrored
-  back. That is a separate, heavier project tracked as a future experiment.
+- **継ぎ目をまたぐウィンドウは「本物」としては描けません。** ドーナツはカーソルの*テレポート*であり、つながった2つの端は Windows の（平面の）仮想デスクトップ上では隣接していません。よって OS は1枚のウィンドウを継ぎ目をまたいで描画できません。シーム・ミラーは*見た目*を再現しますが **視覚専用** です。
+- **トーラス入力は OS の壁で不可。** ミラー帯を操作可能にするには、ウィンドウの画面外部分に実カーソルを置く必要がありますが、Windows はカーソルを「全ディスプレイの実領域」内に拘束するため、そこへは行けません（実測で確認）。合成入力（`PostMessage`）は一部のクラシック Win32 アプリでのみ動作します。
+- **v2 構想:** 本物の*トーラス・デスクトップ*には、ワープ先に**実際のスクリーン領域**が要ります。本命は **仮想ディスプレイドライバ（IDD）** で仮想モニターを生やす方式。そこへはカーソルが入れるので入力も万能になり、それを左モニターへミラーする — これは別プロジェクト（将来の実験）として切り出します。
 
-## License
+## ライセンス
 
 [MIT](LICENSE) © 0ch4
