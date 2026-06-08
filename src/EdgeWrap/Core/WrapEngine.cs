@@ -13,9 +13,9 @@ public sealed class WrapEngine : IDisposable
     // One actionable end of a link: when the cursor hits Src, jump to Dst.
     private sealed record EndPlan(Rectangle SrcBounds, Side SrcSide, Rectangle DstBounds, Side DstSide);
 
-    private sealed record Snapshot(IReadOnlyList<EndPlan> Ends, Rectangle Virtual)
+    private sealed record Snapshot(IReadOnlyList<EndPlan> Ends, Rectangle Virtual, IReadOnlyList<Rectangle> Monitors)
     {
-        public static readonly Snapshot Empty = new(Array.Empty<EndPlan>(), Rectangle.Empty);
+        public static readonly Snapshot Empty = new(Array.Empty<EndPlan>(), Rectangle.Empty, Array.Empty<Rectangle>());
     }
 
     private readonly object _gate = new();
@@ -47,9 +47,11 @@ public sealed class WrapEngine : IDisposable
             AddEnd(ends, byId, link.B, link.A);
         }
 
+        var monRects = monitors.Select(m => m.Bounds).ToList();
+
         lock (_gate)
         {
-            _snap = new Snapshot(ends, vb);
+            _snap = new Snapshot(ends, vb, monRects);
             _margin = Math.Clamp(margin, 1, 50);
             _pollMs = Math.Clamp(pollMs, 2, 50);
         }
@@ -120,7 +122,7 @@ public sealed class WrapEngine : IDisposable
     {
         foreach (var e in snap.Ends)
         {
-            if (!IsAtOuterEdge(e.SrcBounds, e.SrcSide, snap.Virtual, x, y))
+            if (!IsAtOuterEdge(e.SrcBounds, e.SrcSide, snap.Virtual, snap.Monitors, x, y))
                 continue;
 
             var (dx, dy) = MapToDestination(e, x, y, margin);
@@ -131,19 +133,31 @@ public sealed class WrapEngine : IDisposable
     }
 
     /// <summary>
-    /// True when the cursor is pressed against this edge AND the edge is on the
-    /// outer boundary of the virtual desktop (so it faces empty space, not a neighbor).
+    /// True when this end's source edge is on the outer boundary of the virtual desktop
+    /// AND the cursor can no longer move in that direction (the adjacent pixel belongs to
+    /// no monitor). Using "no monitor next door" instead of the source monitor's own edge
+    /// means a vertically-offset monitor's dead-zone is handled: e.g. above a monitor that
+    /// starts at y=50, the effective left edge is the neighbour's edge, and the wrap still
+    /// fires there.
     /// </summary>
-    private static bool IsAtOuterEdge(Rectangle m, Side side, Rectangle vb, int x, int y)
+    private static bool IsAtOuterEdge(Rectangle m, Side side, Rectangle vb, IReadOnlyList<Rectangle> monitors, int x, int y)
     {
         return side switch
         {
-            Side.Left => m.Left <= vb.Left && x <= m.Left && y >= m.Top && y < m.Bottom,
-            Side.Right => m.Right >= vb.Right && x >= m.Right - 1 && y >= m.Top && y < m.Bottom,
-            Side.Top => m.Top <= vb.Top && y <= m.Top && x >= m.Left && x < m.Right,
-            Side.Bottom => m.Bottom >= vb.Bottom && y >= m.Bottom - 1 && x >= m.Left && x < m.Right,
+            Side.Left => m.Left <= vb.Left && NoMonitorAt(monitors, x - 1, y),
+            Side.Right => m.Right >= vb.Right && NoMonitorAt(monitors, x + 1, y),
+            Side.Top => m.Top <= vb.Top && NoMonitorAt(monitors, x, y - 1),
+            Side.Bottom => m.Bottom >= vb.Bottom && NoMonitorAt(monitors, x, y + 1),
             _ => false
         };
+    }
+
+    private static bool NoMonitorAt(IReadOnlyList<Rectangle> monitors, int x, int y)
+    {
+        foreach (var r in monitors)
+            if (r.Contains(x, y))
+                return false;
+        return true;
     }
 
     private static (int x, int y) MapToDestination(EndPlan e, int x, int y, int margin)

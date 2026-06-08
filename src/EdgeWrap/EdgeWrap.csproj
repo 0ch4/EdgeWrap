@@ -10,7 +10,7 @@
     <AssemblyName>EdgeWrap</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <Version>0.1.1</Version>
+    <Version>0.1.2</Version>
     <Product>EdgeWrap</Product>
     <Authors>0ch4</Authors>
     <Company>0ch4</Company>

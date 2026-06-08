@@ -160,6 +160,13 @@ public sealed class SeamMirrorService : IDisposable
     private List<Seam> _seams = new();
     private bool _enabled;
 
+    // While a window straddles the seam it's the focused window, so pin it top-most;
+    // restore it once it no longer straddles.
+    private static readonly IntPtr HWND_TOPMOST = new(-1);
+    private static readonly IntPtr HWND_NOTOPMOST = new(-2);
+    private const uint SWP_NOMOVE_NOSIZE_NOACTIVATE = 0x0001 | 0x0002 | 0x0010;
+    private IntPtr _pinned = IntPtr.Zero;
+
     public SeamMirrorService()
     {
         _timer.Tick += (_, _) => Tick();
@@ -180,7 +187,7 @@ public sealed class SeamMirrorService : IDisposable
             else
             {
                 _timer.Stop();
-                _overlay.HideMirror();
+                StopMirror();
             }
         }
     }
@@ -217,7 +224,7 @@ public sealed class SeamMirrorService : IDisposable
         var hwnd = Native.GetForegroundWindow();
         if (hwnd == IntPtr.Zero || !Native.IsWindowVisible(hwnd) || Native.IsIconic(hwnd))
         {
-            _overlay.HideMirror();
+            StopMirror();
             return;
         }
 
@@ -225,13 +232,13 @@ public sealed class SeamMirrorService : IDisposable
         Native.GetWindowThreadProcessId(hwnd, out uint pid);
         if (pid == _ownPid)
         {
-            _overlay.HideMirror();
+            StopMirror();
             return;
         }
 
         if (!Native.GetWindowRect(hwnd, out var wr))
         {
-            _overlay.HideMirror();
+            StopMirror();
             return;
         }
 
@@ -245,6 +252,7 @@ public sealed class SeamMirrorService : IDisposable
                 var rcSource = new Native.RECT { Left = srcLeft, Top = 0, Right = wr.Width, Bottom = wr.Height };
                 var dest = new Rectangle(seam.LeftMon.Left, wr.Top, ow, wr.Height);
                 _overlay.ShowMirror(hwnd, rcSource, dest);
+                PinTopmost(hwnd);
                 return;
             }
 
@@ -255,17 +263,40 @@ public sealed class SeamMirrorService : IDisposable
                 var rcSource = new Native.RECT { Left = 0, Top = 0, Right = ow, Bottom = wr.Height };
                 var dest = new Rectangle(seam.RightMon.Right - ow, wr.Top, ow, wr.Height);
                 _overlay.ShowMirror(hwnd, rcSource, dest);
+                PinTopmost(hwnd);
                 return;
             }
         }
 
+        StopMirror();
+    }
+
+    private void StopMirror()
+    {
         _overlay.HideMirror();
+        Unpin();
+    }
+
+    private void PinTopmost(IntPtr hwnd)
+    {
+        if (_pinned == hwnd) return;
+        Unpin();
+        Native.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE_NOSIZE_NOACTIVATE);
+        _pinned = hwnd;
+    }
+
+    private void Unpin()
+    {
+        if (_pinned == IntPtr.Zero) return;
+        Native.SetWindowPos(_pinned, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE_NOSIZE_NOACTIVATE);
+        _pinned = IntPtr.Zero;
     }
 
     public void Dispose()
     {
         _timer.Stop();
         _timer.Dispose();
+        Unpin();
         _overlay.Dispose();
     }
 }
